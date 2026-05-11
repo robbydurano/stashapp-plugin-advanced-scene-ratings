@@ -41,7 +41,9 @@ TAG_RATING_PARENT = {
 settings = {
     "categories": "Video Quality, Audio Fidelity, Chemistry, Decoration, Storytelling",
     "minimum_required_tags": 5,
-    "allow_destructive_actions": False
+    "allow_destructive_actions": False,
+    "use_custom_fields": False,
+    "custom_field_prefix": "",
 }
 
 
@@ -161,17 +163,47 @@ def handle_hooks(json_input, stash):
         processScene(scene)
 
 
-def calculate_rating(stash, scene, categories, minimum_required_tags ):
-    tags = [tag['name'] for tag in scene['tags']]
-    scores = {}
-    for tag in tags:
-        match = TAG_PATTERN.match(tag)
-        if match:
-            category, score = match.groups()
-            if category in categories:
-                scores[category] = int(score)
+def fetch_scene_custom_fields(stash, scene_id):
+    query = """
+    query GetSceneCustomFields($id: ID!) {
+      findScene(id: $id) { custom_fields }
+    }
+    """
+    try:
+        result = stash.call_GQL(query, {"id": scene_id})
+        return result.get("findScene", {}).get("custom_fields") or {}
+    except Exception as e:
+        log.error(f"FETCH CUSTOM FIELDS: {e}")
+        return {}
 
-    log.debug(f"SCORES: {scores}")
+
+def calculate_rating(stash, scene, categories, minimum_required_tags):
+    use_cf = settings.get("use_custom_fields", False)
+    prefix = settings.get("custom_field_prefix", "")
+
+    if use_cf:
+        custom_fields = fetch_scene_custom_fields(stash, scene["id"])
+        scores = {}
+        for cat in categories:
+            key = f"{prefix}{cat.strip()}"
+            val = custom_fields.get(key)
+            if val is not None:
+                try:
+                    scores[cat.strip()] = int(float(str(val)))
+                except (ValueError, TypeError):
+                    pass
+        log.debug(f"SCORES (custom fields): {scores}")
+    else:
+        tags = [tag['name'] for tag in scene['tags']]
+        scores = {}
+        for tag in tags:
+            match = TAG_PATTERN.match(tag)
+            if match:
+                category, score = match.groups()
+                if category in categories:
+                    scores[category] = int(score)
+        log.debug(f"SCORES (tags): {scores}")
+
     if len(scores) < minimum_required_tags:
         log.debug(f"CALCULATE RATING: SKIPPED")
     else:

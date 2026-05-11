@@ -1,6 +1,6 @@
 name: Advanced Rating System
 description: Rate scenes based on advanced criteria using tags
-version: 1.0.4
+version: 1.0.5
 url: https://github.com/shackofnoreturn/stashapp-plugin-advanced-scene-ratings
 exec:
   - python
@@ -26,6 +26,14 @@ settings:
     displayName: "Allow Destructive Actions"
     description: "Enable destructive actions like removing tags or ratings"
     type: BOOLEAN
+  use_custom_fields:
+    displayName: "Use Custom Fields"
+    description: "Read scores from scene custom fields instead of tags. Field keys are the category name (with optional prefix)."
+    type: BOOLEAN
+  custom_field_prefix:
+    displayName: "Custom Field Prefix"
+    description: "Optional prefix for custom field keys (e.g. 'rating_' makes keys like 'rating_Video Quality'). Leave blank to use category names as-is."
+    type: STRING
 
 tasks:
   - name: Process All Scenes
