@@ -140,6 +140,94 @@ def get_allow_destructive_actions():
         log.error(f"PLUGIN CONFIGURATION: Failed to read 'allow_destructive_actions': {e}")
         allow_destructive_actions = False
 
+FIND_SCENES_WITH_TAGS_GQL = """
+query FindScenesTagged($page: Int!) {
+  findScenes(filter: { per_page: 100, page: $page }) {
+    count
+    scenes { id title tags { name } }
+  }
+}
+"""
+
+FIND_SCENES_WITH_CF_GQL = """
+query FindScenesWithCF($page: Int!) {
+  findScenes(filter: { per_page: 100, page: $page }) {
+    count
+    scenes { id title custom_fields }
+  }
+}
+"""
+
+UPDATE_SCENE_CF_GQL = """
+mutation UpdateSceneCF($id: ID!, $custom_fields: CustomFieldsInput!) {
+  sceneUpdate(input: { id: $id, custom_fields: $custom_fields }) { id }
+}
+"""
+
+
+def migrate_tags_to_custom_fields():
+    log.info("MIGRATING TAG RATINGS TO CUSTOM FIELDS ...")
+    prefix = settings.get("custom_field_prefix", "")
+    cats = [c.strip() for c in categories]
+    page, total = 1, 0
+    while True:
+        result = stash.call_GQL(FIND_SCENES_WITH_TAGS_GQL, {"page": page})
+        scenes = (result.get("findScenes") or {}).get("scenes") or []
+        if not scenes:
+            break
+        for scene in scenes:
+            tags = [t["name"] for t in scene.get("tags", [])]
+            scores = {}
+            for tag in tags:
+                match = TAG_PATTERN.match(tag)
+                if match:
+                    cat, score = match.groups()
+                    if cat.strip() in cats:
+                        scores[cat.strip()] = int(score)
+            if not scores:
+                continue
+            cf_updates = {f"{prefix}{cat}": val for cat, val in scores.items()}
+            try:
+                stash.call_GQL(UPDATE_SCENE_CF_GQL, {
+                    "id": scene["id"],
+                    "custom_fields": {"partial": cf_updates},
+                })
+                total += 1
+                log.debug(f"MIGRATE: Scene {scene['id']} — {cf_updates}")
+            except Exception as e:
+                log.error(f"MIGRATE: Scene {scene['id']} failed: {e}")
+        page += 1
+    log.info(f"MIGRATE: {total} scenes updated")
+
+
+def init_custom_fields():
+    log.info("INITIALIZING CUSTOM FIELDS ...")
+    prefix = settings.get("custom_field_prefix", "")
+    cats = [c.strip() for c in categories]
+    page, total = 1, 0
+    while True:
+        result = stash.call_GQL(FIND_SCENES_WITH_CF_GQL, {"page": page})
+        scenes = (result.get("findScenes") or {}).get("scenes") or []
+        if not scenes:
+            break
+        for scene in scenes:
+            cf = scene.get("custom_fields") or {}
+            missing = {f"{prefix}{cat}": 0 for cat in cats if f"{prefix}{cat}" not in cf}
+            if not missing:
+                continue
+            try:
+                stash.call_GQL(UPDATE_SCENE_CF_GQL, {
+                    "id": scene["id"],
+                    "custom_fields": {"partial": missing},
+                })
+                total += 1
+                log.debug(f"INIT: Scene {scene['id']} — {list(missing.keys())}")
+            except Exception as e:
+                log.error(f"INIT: Scene {scene['id']} failed: {e}")
+        page += 1
+    log.info(f"INIT: {total} scenes initialized")
+
+
 def handle_actions(json_input, stash, categories, minimum_required_tags):
     log.debug("HANDLING ACTIONS ...")
     args = json_input.get("args", {})
@@ -152,6 +240,10 @@ def handle_actions(json_input, stash, categories, minimum_required_tags):
         createTags(categories)
     elif mode == "remove_tags":
         removeTags(categories)
+    elif mode == "migrate_to_custom_fields":
+        migrate_tags_to_custom_fields()
+    elif mode == "init_custom_fields":
+        init_custom_fields()
 
 def handle_hooks(json_input, stash):
     log.debug("HANDLING HOOKS ...")

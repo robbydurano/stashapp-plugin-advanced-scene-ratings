@@ -55,3 +55,13 @@ tasks:
     description: Remove all plugin generated tags
     defaultArgs:
       mode: remove_tags
+
+  - name: Migrate Tag Ratings to Custom Fields
+    description: Read tag-based scores and write them as custom fields on each scene
+    defaultArgs:
+      mode: migrate_to_custom_fields
+
+  - name: Initialize Custom Fields
+    description: Set all category custom fields to 0 on scenes that don't already have them
+    defaultArgs:
+      mode: init_custom_fields
